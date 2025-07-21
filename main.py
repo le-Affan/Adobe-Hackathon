@@ -1,7 +1,8 @@
 import sys
 import os
 import json
-from utils import extract_headings_from_pdf
+from util import extract_headings_from_pdf
+
 
 def extract_headings(pdf_path):
     if not os.path.exists(pdf_path):
@@ -14,8 +15,11 @@ def extract_headings(pdf_path):
     except Exception as e:
         print(f"An error occurred while processing the PDF: {e}")
 
+
 if __name__ == "__main__":
-    if len(sys.argv) != 2:
-        print("Usage: python main.py <pdf_file_path>")
-    else:
-        extract_headings(sys.argv[1])
+    pdf_path = "input/file02.pdf"  # or whatever your file name is
+    extract_headings(pdf_path)
+    # if len(sys.argv) != 2:
+    #     print("Usage: python main.py <pdf_file_path>")
+    # else:
+    #     extract_headings(sys.argv[1])
