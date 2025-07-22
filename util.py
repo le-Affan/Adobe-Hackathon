@@ -1,62 +1,78 @@
-from pdfminer.high_level import extract_pages
-from pdfminer.layout import LTTextContainer, LTChar
+import fitz  # PyMuPDF
+from collections import Counter
 
-def extract_headings_from_pdf(pdf_path):
+EXCLUDE_KEYWORDS = ["table of contents", "acknowledgements", "overview", "revision history", "contents"]
+
+def is_bold(font_name):
+    return "Bold" in font_name or "bold" in font_name
+
+def extract_outline(pdf_path):
+    doc = fitz.open(pdf_path)
+
+    font_stats = []
+
     headings = []
-    max_font_sizes = {"H1": 0, "H2": 0, "H3": 0}
-    font_size_thresholds = []
 
-    # First pass: collect all font sizes
-    font_sizes = set()
-    for page_layout in extract_pages(pdf_path):
-        for element in page_layout:
-            if isinstance(element, LTTextContainer):
-                for text_line in element:
-                    for character in text_line:
-                        if isinstance(character, LTChar):
-                            font_sizes.add(round(character.size, 1))
+    for page_num in range(len(doc)):
+        page = doc[page_num]
+        blocks = page.get_text("dict")["blocks"]
 
-    # Sort and define thresholds
-    font_sizes = sorted(font_sizes, reverse=True)
-    if len(font_sizes) >= 3:
-        font_size_thresholds = font_sizes[:3]
-    else:
-        font_size_thresholds = font_sizes + [0] * (3 - len(font_sizes))
-
-    def get_heading_level(font_size):
-        if round(font_size, 1) == font_size_thresholds[0]:
-            return "H1"
-        elif round(font_size, 1) == font_size_thresholds[1]:
-            return "H2"
-        elif round(font_size, 1) == font_size_thresholds[2]:
-            return "H3"
-        else:
-            return None
-
-    for page_number, page_layout in enumerate(extract_pages(pdf_path), start=1):
-        for element in page_layout:
-            if isinstance(element, LTTextContainer):
-                for text_line in element:
-                    line_text = text_line.get_text().strip()
-                    if not line_text:
+        for block in blocks:
+            for line in block.get("lines", []):
+                for span in line.get("spans", []):
+                    text = span["text"].strip()
+                    if not text or len(text) < 3:
                         continue
-                    font_size = 0
-                    for character in text_line:
-                        if isinstance(character, LTChar):
-                            font_size = max(font_size, round(character.size, 1))
-                    heading_level = get_heading_level(font_size)
-                    if heading_level:
+
+                    font_size = span["size"]
+                    font_name = span["font"]
+                    is_bold_text = is_bold(font_name)
+
+                    # Store stats to find top font sizes later
+                    font_stats.append((round(font_size, 1), is_bold_text))
+
+    # Find most common font sizes
+    size_counts = Counter(size for size, bold in font_stats)
+    top_sizes = [size for size, _ in size_counts.most_common()]
+
+    if len(top_sizes) < 2:
+        return {"title": doc.metadata.get("title", ""), "outline": []}
+
+    h1_size = top_sizes[0]
+    h2_size = top_sizes[1] if len(top_sizes) > 1 else None
+    h3_size = top_sizes[2] if len(top_sizes) > 2 else None
+
+    for page_num in range(len(doc)):
+        page = doc[page_num]
+        blocks = page.get_text("dict")["blocks"]
+
+        for block in blocks:
+            for line in block.get("lines", []):
+                for span in line.get("spans", []):
+                    text = span["text"].strip()
+                    if not text or len(text) < 3:
+                        continue
+
+                    font_size = round(span["size"], 1)
+                    font_name = span["font"]
+                    is_bold_text = is_bold(font_name)
+
+                    level = None
+                    if font_size == h1_size and is_bold_text:
+                        level = "H1"
+                    elif font_size == h2_size:
+                        level = "H2"
+                    elif font_size == h3_size:
+                        level = "H3"
+
+                    if level and not any(x in text.lower() for x in EXCLUDE_KEYWORDS):
                         headings.append({
-                            "level": heading_level,
-                            "text": line_text,
-                            "page": page_number
+                            "level": level,
+                            "text": text,
+                            "page": page_num + 1
                         })
 
-    # Format final result
-    title_parts = [h["text"] for h in headings if h["level"] == "H1" and h["page"] == 1]
-    title = "  ".join(title_parts)
-
     return {
-        "title": title,
+        "title": doc.metadata.get("title", ""),
         "outline": headings
     }
